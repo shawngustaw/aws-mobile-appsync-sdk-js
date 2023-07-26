@@ -50,7 +50,7 @@ interface Headers {
     value: string | (() => (string | Promise<string>))
 }
 
-const headerBasedAuth = async ({ header, value }: Headers = { header: '', value: '' }, operation, forward) => {
+const headerBasedAuth = async ({ header, value }: Headers = { header: '', value: '' }, operation, forward, additionalHeaders: Headers[] = []) => {
     const origContext = operation.getContext();
     let headers = {
         ...origContext.headers,
@@ -64,6 +64,17 @@ const headerBasedAuth = async ({ header, value }: Headers = { header: '', value:
             ...{ [header]: headerValue },
             ...headers
         };
+    }
+
+    if (additionalHeaders) {
+        for (const { header, value } of additionalHeaders) {
+            const headerValue = typeof value === 'function' ? await value.call(undefined) : await value;
+
+            headers = {
+                ...{ [header]: headerValue },
+                ...headers
+            };
+        }
     }
 
     operation.setContext({
@@ -130,7 +141,7 @@ type AuthOptionsLambda = {
 }
 export type AuthOptions = AuthOptionsNone | AuthOptionsIAM | AuthOptionsApiKey | AuthOptionsOAuth | AuthOptionsLambda;
 
-export const authLink = ({ url, region, auth: { type } = <AuthOptions>{}, auth }) => {
+export const authLink = ({ url, region, auth: { type } = <AuthOptions>{}, auth, additionalHeaders = [] as Headers[] }) => {
     return new ApolloLink((operation, forward) => {
         return new Observable(observer => {
             let handle;
@@ -151,16 +162,16 @@ export const authLink = ({ url, region, auth: { type } = <AuthOptions>{}, auth }
                     break;
                 case AUTH_TYPE.API_KEY:
                     const { apiKey = '' } = auth;
-                    promise = headerBasedAuth({ header: 'X-Api-Key', value: apiKey }, operation, forward);
+                    promise = headerBasedAuth({ header: 'X-Api-Key', value: apiKey }, operation, forward, additionalHeaders);
                     break;
                 case AUTH_TYPE.AMAZON_COGNITO_USER_POOLS:
                 case AUTH_TYPE.OPENID_CONNECT:
                     const { jwtToken = '' } = auth;
-                    promise = headerBasedAuth({ header: 'Authorization', value: jwtToken }, operation, forward);
+                    promise = headerBasedAuth({ header: 'Authorization', value: jwtToken }, operation, forward, additionalHeaders);
                     break;
                 case AUTH_TYPE.AWS_LAMBDA:
                     const { token = '' } = auth;
-                    promise = headerBasedAuth({ header: 'Authorization', value: token }, operation, forward);
+                    promise = headerBasedAuth({ header: 'Authorization', value: token }, operation, forward, additionalHeaders);
                     break
                 default:
                     const error = new Error(`Invalid AUTH_TYPE: ${(<AuthOptions>auth).type}`);
